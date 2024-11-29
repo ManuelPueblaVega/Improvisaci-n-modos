@@ -1,0 +1,385 @@
+<html><head><base href="/">  
+<meta charset="UTF-8">
+<title>Improvisador Musical</title>
+<style>
+:root {
+  --primary: #2c3e50;
+  --secondary: #34495e;
+  --accent: #e74c3c;
+  --light: #ecf0f1;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  background: var(--primary);
+  color: var(--light);
+  margin: 0;
+  padding: 20px;
+}
+
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.controls {
+  background: var(--secondary);
+  padding: 20px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+select, button {
+  padding: 8px 12px;
+  margin: 5px;
+  border: none;
+  border-radius: 5px;
+  background: var(--light);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--accent);
+  color: white;
+}
+
+.sequencer {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.chord-slot {
+  background: var(--secondary);
+  padding: 10px;
+  border-radius: 5px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.chord-slot.active {
+  background: var(--accent);
+}
+
+.note-keyboard {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+  margin: 40px auto;
+  max-width: 800px;
+}
+
+.note-button {
+  padding: 20px;
+  border-radius: 5px;
+  background: var(--light);
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s;
+  text-align: center;
+}
+
+.note-button.active {
+  background: var(--accent);
+  color: white;
+}
+
+.octave-divider {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-weight: bold;
+  color: var(--accent);
+}
+
+.transport {
+  text-align: center;
+  margin: 20px 0;
+}
+
+.tempo-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 20px;
+}
+
+.tempo-display {
+  background: var(--light);
+  padding: 5px 10px;
+  border-radius: 5px;
+  color: var(--primary);
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="controls">
+    <select id="scale">
+      <option value="major">Mayor</option>
+      <option value="minor">Menor</option>
+      <option value="dorian">Modo Dórico</option>
+      <option value="phrygian">Modo Frigio</option>
+      <option value="lydian">Modo Lidio</option>
+      <option value="mixolydian">Modo Mixolidio</option>
+      <option value="aeolian">Modo Eólico</option>
+      <option value="locrian">Modo Locrio</option>
+    </select>
+    <select id="root">
+      <option value="0">Do</option>
+      <option value="1">Do#</option>
+      <option value="2">Re</option>
+      <option value="3">Re#</option>
+      <option value="4">Mi</option>
+      <option value="5">Fa</option>
+      <option value="6">Fa#</option>
+      <option value="7">Sol</option>
+      <option value="8">Sol#</option>
+      <option value="9">La</option>
+      <option value="10">La#</option>
+      <option value="11">Si</option>
+    </select>
+    <select id="noteDuration">
+      <option value="8n">Corcheas</option>
+      <option value="4n" selected>Negras</option>
+      <option value="2n">Blancas</option>
+    </select>
+    <div class="tempo-controls">
+      <button id="decreaseTempo">-</button>
+      <span id="tempoDisplay" class="tempo-display">120 BPM</span>
+      <button id="increaseTempo">+</button>
+    </div>
+    <button id="toggleMetronome">Metrónomo Off</button>
+  </div>
+
+  <div id="sequencer" class="sequencer"></div>
+
+  <div class="transport">
+    <button id="play">▶ Play</button>
+    <button id="stop">⏹ Stop</button>
+    <button id="clear">Clear</button>
+  </div>
+
+  <div id="noteKeyboard" class="note-keyboard"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.min.js"></script>
+<script>
+const chordSynth = new Tone.PolySynth().toDestination();
+chordSynth.volume.value = -12;
+
+const melodySynth = new Tone.PolySynth().toDestination();
+melodySynth.volume.value = -2;
+
+const metronome = new Tone.MembraneSynth().toDestination();
+metronome.volume.value = -10;
+
+let isPlaying = false;
+let currentStep = 0;
+let sequence;
+let isMetronomeOn = false;
+let metronomePart;
+
+const scales = {
+  major: [0, 2, 4, 5, 7, 9, 11],
+  minor: [0, 2, 3, 5, 7, 8, 10],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  phrygian: [0, 1, 3, 5, 7, 8, 10],
+  lydian: [0, 2, 4, 6, 7, 9, 11],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  aeolian: [0, 2, 3, 5, 7, 8, 10],
+  locrian: [0, 1, 3, 5, 6, 8, 10]
+};
+
+const noteNames = ['Do', 'Do#', 'Re', 'Re#', 'Mi', 'Fa', 'Fa#', 'Sol', 'Sol#', 'La', 'La#', 'Si'];
+const chordNumerals = ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii°'];
+const sequencer = document.getElementById('sequencer');
+const slots = Array(8).fill(null);
+
+// Create sequencer slots
+slots.forEach((_, i) => {
+  const slot = document.createElement('div');
+  slot.className = 'chord-slot';
+  slot.textContent = '-';
+  slot.addEventListener('click', () => {
+    const current = slot.textContent;
+    const currentIndex = chordNumerals.indexOf(current);
+    const nextIndex = current === '-' ? 0 : (currentIndex + 1) % chordNumerals.length;
+    slot.textContent = current === '-' ? chordNumerals[0] : 
+                      nextIndex === 0 ? '-' : chordNumerals[nextIndex];
+  });
+  sequencer.appendChild(slot);
+});
+
+// Create linear keyboard
+const createKeyboard = () => {
+  const keyboard = document.getElementById('noteKeyboard');
+  keyboard.innerHTML = '';
+  const scale = scales[document.getElementById('scale').value];
+  const root = parseInt(document.getElementById('root').value);
+  
+  // Create first octave
+  scale.forEach((note, index) => {
+    const absoluteNote = (note + root) % 12;
+    const button = document.createElement('button');
+    button.className = 'note-button';
+    button.textContent = noteNames[absoluteNote];
+    
+    button.addEventListener('mousedown', () => {
+      button.classList.add('active');
+      melodySynth.triggerAttack(Tone.Frequency(absoluteNote + 60, "midi").toNote());
+    });
+    
+    button.addEventListener('mouseup', () => {
+      button.classList.remove('active');
+      melodySynth.triggerRelease(Tone.Frequency(absoluteNote + 60, "midi").toNote());
+    });
+    
+    button.addEventListener('mouseleave', () => {
+      button.classList.remove('active');
+      melodySynth.triggerRelease(Tone.Frequency(absoluteNote + 60, "midi").toNote());
+    });
+    
+    keyboard.appendChild(button);
+  });
+
+  // Add octave divider
+  const divider = document.createElement('div');
+  divider.className = 'octave-divider';
+  divider.textContent = '-- Octava Superior --';
+  keyboard.appendChild(divider);
+
+  // Create second octave
+  scale.forEach((note, index) => {
+    const absoluteNote = (note + root) % 12;
+    const button = document.createElement('button');
+    button.className = 'note-button';
+    button.textContent = noteNames[absoluteNote];
+    
+    button.addEventListener('mousedown', () => {
+      button.classList.add('active');
+      melodySynth.triggerAttack(Tone.Frequency(absoluteNote + 72, "midi").toNote());
+    });
+    
+    button.addEventListener('mouseup', () => {
+      button.classList.remove('active');
+      melodySynth.triggerRelease(Tone.Frequency(absoluteNote + 72, "midi").toNote());
+    });
+    
+    button.addEventListener('mouseleave', () => {
+      button.classList.remove('active');
+      melodySynth.triggerRelease(Tone.Frequency(absoluteNote + 72, "midi").toNote());
+    });
+    
+    keyboard.appendChild(button);
+  });
+};
+
+createKeyboard();
+
+// Tempo controls
+let tempo = 120;
+const tempoDisplay = document.getElementById('tempoDisplay');
+const updateTempo = (newTempo) => {
+  tempo = Math.max(40, Math.min(240, newTempo));
+  tempoDisplay.textContent = `${tempo} BPM`;
+  Tone.Transport.bpm.value = tempo;
+};
+
+document.getElementById('increaseTempo').addEventListener('click', () => updateTempo(tempo + 5));
+document.getElementById('decreaseTempo').addEventListener('click', () => updateTempo(tempo - 5));
+
+// Metronome toggle
+document.getElementById('toggleMetronome').addEventListener('click', (e) => {
+  isMetronomeOn = !isMetronomeOn;
+  e.target.textContent = isMetronomeOn ? 'Metrónomo On' : 'Metrónomo Off';
+  if (isPlaying) {
+    if (isMetronomeOn && !metronomePart) {
+      metronomePart = new Tone.Part((time) => {
+        metronome.triggerAttackRelease('C2', '32n', time);
+      }, [{time: 0}]).start(0);
+      metronomePart.loop = true;
+      metronomePart.loopEnd = document.getElementById('noteDuration').value;
+    } else if (!isMetronomeOn && metronomePart) {
+      metronomePart.dispose();
+      metronomePart = null;
+    }
+  }
+});
+
+// Transport controls
+document.getElementById('play').addEventListener('click', () => {
+  if (!isPlaying) {
+    Tone.start();
+    currentStep = 0;
+    const duration = document.getElementById('noteDuration').value;
+    
+    sequence = Tone.Transport.scheduleRepeat((time) => {
+      const slots = document.querySelectorAll('.chord-slot');
+      slots.forEach(slot => slot.classList.remove('active'));
+      slots[currentStep].classList.add('active');
+      
+      const chord = slots[currentStep].textContent;
+      if (chord !== '-') {
+        const chordIndex = chordNumerals.indexOf(chord);
+        const scale = scales[document.getElementById('scale').value];
+        const root = parseInt(document.getElementById('root').value);
+        
+        const chordNotes = [0, 2, 4].map(interval => {
+          const scaleIndex = (chordIndex + interval) % 7;
+          const note = scale[scaleIndex];
+          return Tone.Frequency(root + note + 60, "midi").toNote();
+        });
+        
+        chordSynth.triggerAttackRelease(chordNotes, duration);
+      }
+      
+      currentStep = (currentStep + 1) % 8;
+    }, duration);
+    
+    if (isMetronomeOn) {
+      metronomePart = new Tone.Part((time) => {
+        metronome.triggerAttackRelease('C2', '32n', time);
+      }, [{time: 0}]).start(0);
+      metronomePart.loop = true;
+      metronomePart.loopEnd = duration;
+    }
+    
+    Tone.Transport.start();
+    isPlaying = true;
+  }
+});
+
+document.getElementById('stop').addEventListener('click', () => {
+  if (isPlaying) {
+    Tone.Transport.stop();
+    Tone.Transport.clear(sequence);
+    if (metronomePart) {
+      metronomePart.dispose();
+      metronomePart = null;
+    }
+    document.querySelectorAll('.chord-slot').forEach(slot => slot.classList.remove('active'));
+    isPlaying = false;
+    currentStep = 0;
+  }
+});
+
+document.getElementById('clear').addEventListener('click', () => {
+  document.querySelectorAll('.chord-slot').forEach(slot => {
+    slot.textContent = '-';
+    slot.classList.remove('active');
+  });
+});
+
+document.getElementById('scale').addEventListener('change', createKeyboard);
+document.getElementById('root').addEventListener('change', createKeyboard);
+
+// Initialize tempo
+updateTempo(tempo);
+</script>
+</body></html>
